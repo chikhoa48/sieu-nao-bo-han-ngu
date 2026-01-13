@@ -1,20 +1,22 @@
 import streamlit as st
 import google.generativeai as genai
 import os, io, requests, time
+import pandas as pd
 from PIL import Image
 from PyPDF2 import PdfReader
 from docx import Document
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-# --- CẤU HÌNH GIAO DIỆN ---
-st.set_page_config(page_title="Hanzi Intelligence Pro v2", page_icon="🎓", layout="wide")
+# --- CẤU HÌNH ---
+st.set_page_config(page_title="Hanzi Intelligence Pro v4", page_icon="🐲", layout="wide")
 
 st.markdown("""
     <style>
     .main { background-color: #fdfaf6; }
-    .stButton>button { background: linear-gradient(45deg, #c0392b, #e74c3c); color: white; border-radius: 10px; font-weight: bold; height: 3em; width: 100%; }
+    .stButton>button { background: linear-gradient(45deg, #2c3e50, #c0392b); color: white; border-radius: 10px; font-weight: bold; }
+    .stDataFrame { background-color: white; border-radius: 10px; }
     .lesson-box { padding: 20px; border-radius: 10px; border-left: 10px solid #c0392b; background-color: #ffffff; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-    .chinese-text { font-size: 22px; color: #c0392b; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -22,28 +24,23 @@ st.markdown("""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
-    # Lấy danh sách model sạch
     available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name]
 except:
-    st.error("⚠️ Vui lòng kiểm tra GEMINI_API_KEY trong Secrets.")
+    st.error("⚠️ Vui lòng cấu hình GEMINI_API_KEY.")
     st.stop()
 
-# --- HÀM TRỢ GIÚP ---
-def get_text_from_files(files):
-    text = ""
-    for f in files:
-        if f.name.endswith('.pdf'):
-            reader = PdfReader(f)
-            for page in reader.pages: text += page.extract_text() or ""
-        elif f.name.endswith('.docx'):
-            doc = Document(f)
-            for para in doc.paragraphs: text += para.text + "\n"
-        elif f.name.endswith('.txt'):
-            text += f.getvalue().decode("utf-8")
-    return text
+# --- HÀM HỖ TRỢ ---
+def get_html(url):
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        res = requests.get(url, headers=headers, timeout=15)
+        res.encoding = res.apparent_encoding
+        return res.text
+    except: return None
 
-def save_docx(content):
+def save_docx(content, title):
     doc = Document()
+    doc.add_heading(title, 0)
     for line in content.split('\n'):
         if line.strip(): doc.add_paragraph(line)
     bio = io.BytesIO()
@@ -52,98 +49,98 @@ def save_docx(content):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🏮 SIÊU NÃO BỘ HÁN NGỮ")
-    selected_model = st.selectbox("🎯 Chọn Bộ Não AI:", available_models, index=0)
-    
+    st.title("🐲 SIÊU NÃO BỘ V4")
+    selected_model = st.selectbox("🎯 Chọn Bộ Não:", available_models, index=0)
     st.divider()
     menu = st.radio("🚀 CHỌN CHẾ ĐỘ:", [
-        "🎓 Học Viện & Giáo Trình Tự Động",
-        "🧠 Đại Sư Kiến Thức (Upload)",
-        "🌐 Cập Nhật Xu Hướng (Search)",
-        "🏭 Dịch Thuật Công Nghiệp"
+        "🔍 Thợ Săn Truyện & Lọc Top",
+        "🏭 Dịch Hàng Loạt Theo Bộ",
+        "🎓 Giáo Trình Tự Động",
+        "🧠 Đại Sư Phân Tích (Upload)",
+        "🖼️ Dịch Ảnh OCR"
     ])
     st.divider()
-    st.info("Phiên bản v2: Tự động thiết kế giáo trình dạy học.")
+    st.info("Phiên bản v4: Tích hợp Scraper thông minh và Lọc truyện.")
 
-# Khởi tạo model mặc định (Không tool để tránh lỗi InvalidArgument)
 model = genai.GenerativeModel(selected_model)
 
-# --- 1. HỌC VIỆN & GIÁO TRÌNH TỰ ĐỘNG (TÍNH NĂNG MỚI) ---
-if menu == "🎓 Học Viện & Giáo Trình Tự Động":
-    st.title("🎓 Học Viện Hán Ngữ: Thiết Kế Giáo Trình Riêng")
-    st.write("Nhập chủ đề bạn muốn học, AI sẽ tự tạo lộ trình bài bản cho bạn.")
+# --- 1. THỢ SĂN TRUYỆN & LỌC TOP ---
+if menu == "🔍 Thợ Săn Truyện & Lọc Top":
+    st.title("🔍 Thợ Săn Truyện: Quét, Phân Loại & Lọc Top")
+    st.write("Dán link trang danh mục hoặc bảng xếp hạng của web truyện (Vd: qidian.com, 69shuba...).")
     
-    topic = st.text_input("Bạn muốn học về chủ đề gì?", placeholder="Ví dụ: Giao tiếp tại sân bay, Tiếng Trung ngành Logistics, Hán cổ đạo đức kinh...")
+    catalog_url = st.text_input("Link trang danh mục/Xếp hạng:")
     
-    if st.button("📚 Tạo Giáo Trình & Bắt Đầu Học"):
-        with st.spinner("Đang biên soạn giáo án chuyên sâu..."):
-            study_prompt = f"""
-            Bạn là một Giáo sư ngôn ngữ học và chuyên gia giáo dục Hán ngữ.
-            Nhiệm vụ: Hãy tạo một giáo trình dạy học tiếng Trung cho người Việt về chủ đề: "{topic}".
+    if st.button("🚀 Quét Toàn Bộ Danh Mục"):
+        with st.spinner("AI đang 'đọc' website và nhặt dữ liệu..."):
+            html = get_html(catalog_url)
+            if html:
+                prompt = f"""
+                Từ mã nguồn HTML này, hãy tìm và trích xuất danh sách tất cả các bộ truyện.
+                Đối với mỗi bộ truyện, hãy tìm các thông tin sau:
+                1. Tên truyện (Dịch sang Tiếng Việt).
+                2. Đường link dẫn đến trang giới thiệu bộ truyện.
+                3. Thể loại (Tiên hiệp, Đô thị, vv).
+                4. Số chương hiện có.
+                5. Lượt xem (Views) và Đánh giá (Rating/Score).
+                
+                Hãy trình bày kết quả dưới dạng một Bảng dữ liệu Markdown rõ ràng. 
+                Sắp xếp theo thứ tự Lượt xem hoặc Đánh giá từ cao xuống thấp.
+                
+                MÃ NGUỒN HTML:
+                {html[:25000]}
+                """
+                res = model.generate_content(prompt)
+                st.markdown(res.text)
+                st.success("Mẹo: Bạn hãy copy Link chương 1 của bộ truyện muốn dịch để sang bước tiếp theo.")
+            else:
+                st.error("Không thể kết nối đến website.")
+
+# --- 2. DỊCH HÀNG LOẠT THEO BỘ ---
+elif menu == "🏭 Dịch Hàng Loạt Theo Bộ":
+    st.title("🏭 Cỗ Máy Dịch Thuật Công Nghiệp")
+    st.info("AI sẽ tự động tìm nút 'Chương sau' để dịch liên tiếp mà không cần dán từng link.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        start_url = st.text_input("Link chương bắt đầu (Chương 1):")
+        num_chaps = st.number_input("Số chương muốn dịch:", 1, 500, 10)
+    with col2:
+        style_req = st.text_area("Yêu cầu văn phong (Vd: Dịch thoát ý, giữ Hán Việt):", "Dịch tiên hiệp, xưng hô Ta - Ngươi, giữ nguyên tên riêng.")
+        glossary = st.text_area("Từ điển (Mỗi dòng 1 từ):", "Trúc Cơ, Linh Khí")
+
+    if st.button("🚀 BẮT ĐẦU CHIẾN DỊCH DỊCH THUẬT"):
+        full_content = ""
+        current_url = start_url
+        p_bar = st.progress(0)
+        
+        for i in range(num_chaps):
+            st.write(f"📂 Đang cào chương {i+1}: {current_url}")
+            html = get_html(current_url)
+            if not html: break
             
-            YÊU CẦU GIÁO TRÌNH PHẢI CÓ:
-            1. LỘ TRÌNH: Chia thành ít nhất 3 bài học nhỏ từ dễ đến khó.
-            2. NỘI DUNG CHI TIẾT BÀI 1:
-               - Các mẫu câu quan trọng nhất.
-               - Bảng từ vựng chi tiết: Chữ Hán | Pinyin | Hán Việt | Nghĩa Việt.
-               - Chiết tự và mẹo nhớ cho các chữ khó.
-            3. NGỮ PHÁP: Giải thích cách sắp xếp câu của chủ đề này.
-            4. BÀI TẬP: Tạo 3 câu bài tập để người dùng luyện tập ngay.
+            # AI thực hiện 3 việc: Lấy nội dung, Tìm link sau, và Dịch luôn
+            prompt = f"""
+            Nhiệm vụ:
+            1. Trích nội dung chương truyện (bỏ qua quảng cáo).
+            2. Tìm URL của chương tiếp theo.
+            3. Dịch nội dung sang tiếng Việt: {style_req}. Thuật ngữ: {glossary}.
             
-            Hãy trình bày thật đẹp mắt, rõ ràng và uyên bác.
+            Định dạng trả về:
+            CONTENT: [Bản dịch]
+            NEXT_URL: [Link sau]
+            
+            HTML: {html[:20000]}
             """
             try:
-                res = model.generate_content(study_prompt)
-                st.markdown("<div class='lesson-box'>", unsafe_allow_html=True)
-                st.markdown(res.text)
-                st.markdown("</div>", unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Lỗi khi tạo bài học: {e}")
-
-# --- 2. ĐẠI SƯ KIẾN THỨC (QUY NẠP & GIẢNG GIẢI) ---
-elif menu == "🧠 Đại Sư Kiến Thức (Upload)":
-    st.title("🧠 Đại Sư Kiến Thức & Ngôn Ngữ")
-    st.info("Nạp sách. AI vừa dạy kiến thức quyển sách, vừa dạy tiếng Trung trong đó.")
-    
-    up_files = st.file_uploader("Nạp sách/tài liệu (PDF/Docx):", accept_multiple_files=True)
-    query = st.text_input("Yêu cầu (VD: Quy nạp các ý chính của sách và dạy tôi từ vựng chuyên ngành này):")
-    
-    if st.button("🚀 Phân Tích Chuyên Sâu"):
-        if up_files:
-            with st.spinner("Đại sư đang nghiên cứu tài liệu..."):
-                ctx = get_text_from_files(up_files)
-                expert_prompt = f"""
-                Bạn là chuyên gia hàng đầu và Giáo sư Hán học.
-                Dữ liệu nạp vào: {ctx[:30000]}
+                res_raw = model.generate_content(prompt).text
+                chapter_val = res_raw.split("CONTENT:")[1].split("NEXT_URL:")[0].strip()
+                next_url = res_raw.split("NEXT_URL:")[1].strip()
                 
-                Yêu cầu của người dùng: {query}
+                full_content += f"\n\n--- CHƯƠNG {i+1} ---\n\n" + chapter_val
                 
-                Hãy thực hiện:
-                1. QUY NẠP KIẾN THỨC: Phân tích, tổng hợp và diễn giải nội dung sách một cách dễ hiểu như chuyên gia tư vấn.
-                2. GIẢNG DẠY NGÔN NGỮ: Từ nội dung trên, dạy tôi các thuật ngữ tiếng Trung cốt lõi (Hán-Pinyin-Hán Việt-Nghĩa).
-                3. PHÂN TÍCH CHUYÊN SÂU: Đưa ra nhận xét của bạn về kiến thức này.
-                """
-                res = model.generate_content(expert_prompt)
-                st.markdown(res.text)
-
-# --- 3. CẬP NHẬT XU HƯỚNG (VÁ LỖI GOOGLE SEARCH) ---
-elif menu == "🌐 Cập Nhật Xu Hướng (Search)":
-    st.title("🌐 Cập Nhật Kiến Thức Mới Nhất")
-    topic_search = st.text_input("Chủ đề tin tức/xu hướng mới nhất:")
-    
-    if st.button("🔍 Quét Mạng & Giảng Bài"):
-        # Chỉ kích hoạt Tool Search ở đây để tránh lỗi InvalidArgument cho toàn app
-        try:
-            model_with_tools = genai.GenerativeModel(model_name=selected_model, tools=[{"google_search_retrieval": {}}])
-            with st.spinner("AI đang lên mạng tìm kiếm..."):
-                search_prompt = f"Tìm tin tức mới nhất về '{topic_search}' bằng tiếng Trung. Tóm tắt ý chính và dạy từ vựng mới liên quan."
-                res = model_with_tools.generate_content(search_prompt)
-                st.markdown(res.text)
-        except Exception as e:
-            st.error(f"Model này không hỗ trợ tìm kiếm hoặc lỗi kết nối. Hãy thử chọn model khác hoặc thử lại sau. Chi tiết: {e}")
-
-# --- 4. DỊCH THUẬT CÔNG NGHIỆP ---
-elif menu == "🏭 Dịch Thuật Công Nghiệp":
-    st.title("🏭 Cào Truyện & Dịch Thuật Hàng Loạt")
-    # (Giữ nguyên logic cào web và dịch hàng loạt từ các bản trước của bạn)
-    st.warning("Vui lòng sử dụng tính năng dịch như đã cài đặt ở bản trước.")
+                # Cập nhật cho vòng lặp sau
+                if next_url.startswith("http"):
+                    current_url = next_url
+                else:
+                    current_url =
