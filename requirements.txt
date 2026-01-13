@@ -2,7 +2,6 @@ streamlit
 google-generativeai
 PyPDF2
 python-docx
-Pillow
 beautifulsoup4
 requests
 pandas
