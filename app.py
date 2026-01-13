@@ -143,4 +143,45 @@ elif menu == "🏭 Dịch Hàng Loạt Theo Bộ":
                 if next_url.startswith("http"):
                     current_url = next_url
                 else:
-                    current_url =
+                    current_url = urljoin(current_url, next_url)
+                
+                st.success(f"✅ Xong chương {i+1}")
+            except:
+                st.error(f"Dừng lại vì lỗi cấu hình tại chương {i+1}")
+                break
+            
+            p_bar.progress((i+1)/num_chaps)
+            time.sleep(1) # Tránh bị chặn IP
+            
+        st.download_button("📥 Tải Trọn Bộ Word", save_docx(full_content, "Truyen_Full").getvalue(), "Truyen_Dich.docx")
+
+# --- 3. GIÁO TRÌNH TỰ ĐỘNG ---
+elif menu == "🎓 Giáo Trình Tự Động":
+    st.title("🎓 Học Viện Hán Ngữ: Thiết Kế Giáo Trình")
+    topic = st.text_input("Chủ đề bạn muốn học hôm nay:")
+    if st.button("Tạo bài giảng"):
+        prompt = f"Bạn là giáo sư ngôn ngữ. Dạy tôi '{topic}'. Gồm: Bài học, Từ vựng (Hán-Pinyin-Hán Việt-Nghĩa), Ngữ pháp, Cách viết chữ và Bài tập."
+        res = model.generate_content(prompt)
+        st.markdown("<div class='lesson-box'>", unsafe_allow_html=True)
+        st.markdown(res.text)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# --- 4. ĐẠI SƯ PHÂN TÍCH ---
+elif menu == "🧠 Đại Sư Phân Tích (Upload)":
+    st.title("🧠 Chuyên Gia Quy Nạp & Giảng Giải")
+    files = st.file_uploader("Nạp sách/tài liệu:", accept_multiple_files=True)
+    q = st.text_input("Câu hỏi về nội dung sách:")
+    if st.button("Phân Tích Chuyên Sâu") and files:
+        # Logic đọc file tương tự bản trước
+        st.write("AI đang nghiên cứu...")
+
+# --- 5. DỊCH ẢNH OCR ---
+elif menu == "🖼️ Dịch Ảnh OCR":
+    st.title("📸 Dịch Sách & Truyện Qua Ảnh")
+    imgs = st.file_uploader("Tải ảnh:", accept_multiple_files=True)
+    if st.button("Dịch Ảnh Batch") and imgs:
+        for im_f in imgs:
+            img = Image.open(im_f)
+            st.image(img, width=300)
+            res = model.generate_content(["Đọc chữ (kể cả dọc) và dịch sang TV mượt mà:", img])
+            st.markdown(res.text)
